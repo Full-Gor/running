@@ -1,8 +1,11 @@
-import { View, Text, StyleSheet, TouchableOpacity, Dimensions } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, Dimensions, Alert } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useState, useEffect } from 'react';
 import { Play, Pause, Square, MapPin, Clock, Activity as ActivityIcon, Zap } from 'lucide-react-native';
+import * as Location from 'expo-location';
+import { Platform } from 'react-native';
+import MapView, { Marker, Polyline, PROVIDER_GOOGLE } from 'react-native-maps';
 
 const { width } = Dimensions.get('window');
 
@@ -11,20 +14,84 @@ export default function ActivityScreen() {
   const [isPaused, setIsPaused] = useState(false);
   const [time, setTime] = useState(0);
   const [distance, setDistance] = useState(0);
+  const [locationSubscription, setLocationSubscription] = useState<Location.LocationSubscription | null>(null);
+  const [currentLocation, setCurrentLocation] = useState<Location.LocationObject | null>(null);
+  const [locationPermission, setLocationPermission] = useState(false);
+  const [routeCoordinates, setRouteCoordinates] = useState<Location.LocationObject[]>([]);
+  const [mapRegion, setMapRegion] = useState({
+    latitude: 48.8566,
+    longitude: 2.3522,
+    latitudeDelta: 0.01,
+    longitudeDelta: 0.01,
+  });
 
+  // Demander les permissions GPS au chargement
+  useEffect(() => {
+    requestLocationPermission();
+    
+    // Nettoyage lors du démontage
+    return () => {
+      if (locationSubscription) {
+        locationSubscription.remove();
+      }
+    };
+  }, []);
+
+  // Timer pour le chronomètre
   useEffect(() => {
     let interval: NodeJS.Timeout;
     
     if (isRunning && !isPaused) {
       interval = setInterval(() => {
         setTime(prevTime => prevTime + 1);
-        // Simulate distance increase (this would be GPS-based in real app)
-        setDistance(prevDistance => prevDistance + 0.002);
       }, 1000);
     }
     
     return () => clearInterval(interval);
   }, [isRunning, isPaused]);
+
+  // Fonction pour demander les permissions GPS
+  const requestLocationPermission = async () => {
+    try {
+      const { status } = await Location.requestForegroundPermissionsAsync();
+      if (status === 'granted') {
+        setLocationPermission(true);
+        // Obtenir la position initiale
+        const location = await Location.getCurrentPositionAsync({
+          accuracy: Location.Accuracy.High,
+        });
+        setCurrentLocation(location);
+        
+        // Initialiser la carte avec la position actuelle
+        setMapRegion({
+          latitude: location.coords.latitude,
+          longitude: location.coords.longitude,
+          latitudeDelta: 0.01,
+          longitudeDelta: 0.01,
+        });
+      } else {
+        Alert.alert(
+          'Permission refusée',
+          'L\'accès à la localisation est nécessaire pour tracker votre course.'
+        );
+      }
+    } catch (error) {
+      console.error('Erreur lors de la demande de permission:', error);
+    }
+  };
+
+  // Fonction pour calculer la distance entre deux points GPS
+  const calculateDistance = (lat1: number, lon1: number, lat2: number, lon2: number): number => {
+    const R = 6371; // Rayon de la Terre en km
+    const dLat = (lat2 - lat1) * Math.PI / 180;
+    const dLon = (lon2 - lon1) * Math.PI / 180;
+    const a = 
+      Math.sin(dLat/2) * Math.sin(dLat/2) +
+      Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * 
+      Math.sin(dLon/2) * Math.sin(dLon/2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+    return R * c;
+  };
 
   const formatTime = (seconds: number) => {
     const hours = Math.floor(seconds / 3600);
@@ -39,15 +106,72 @@ export default function ActivityScreen() {
 
   const calculatePace = () => {
     if (distance === 0 || time === 0) return '0:00';
-    const paceInSeconds = (time / 60) / distance;
-    const minutes = Math.floor(paceInSeconds);
-    const seconds = Math.floor((paceInSeconds - minutes) * 60);
+    
+    // Formule correcte : allure = temps total / distance
+    const paceInSeconds = time / distance;
+    const minutes = Math.floor(paceInSeconds / 60);
+    const seconds = Math.floor(paceInSeconds % 60);
+    
     return `${minutes}:${seconds.toString().padStart(2, '0')}`;
   };
 
-  const handleStart = () => {
-    setIsRunning(true);
-    setIsPaused(false);
+  const calculateSpeed = () => {
+    if (distance === 0 || time === 0) return 0;
+    
+    // Vitesse en km/h = (distance / temps) * 3600
+    const speedKmh = (distance / time) * 3600;
+    return speedKmh;
+  };
+
+  const handleStart = async () => {
+    if (!locationPermission) {
+      await requestLocationPermission();
+      return;
+    }
+
+    try {
+      // Démarrer le tracking GPS
+      const subscription = await Location.watchPositionAsync(
+        {
+          accuracy: Location.Accuracy.BestForNavigation,
+          timeInterval: 1000, // Mise à jour toutes les secondes
+          distanceInterval: 5, // Mise à jour tous les 5 mètres
+        },
+        (location) => {
+          setCurrentLocation(location);
+          
+          // Ajouter la nouvelle position au parcours
+          setRouteCoordinates(prev => [...prev, location]);
+          
+          // Mettre à jour la région de la carte pour suivre la position
+          setMapRegion({
+            latitude: location.coords.latitude,
+            longitude: location.coords.longitude,
+            latitudeDelta: 0.005,
+            longitudeDelta: 0.005,
+          });
+          
+          // Calculer la distance si on a au moins 2 points
+          if (routeCoordinates.length > 0) {
+            const lastLocation = routeCoordinates[routeCoordinates.length - 1];
+            const newDistance = calculateDistance(
+              lastLocation.coords.latitude,
+              lastLocation.coords.longitude,
+              location.coords.latitude,
+              location.coords.longitude
+            );
+            setDistance(prev => prev + newDistance);
+          }
+        }
+      );
+      
+      setLocationSubscription(subscription);
+      setIsRunning(true);
+      setIsPaused(false);
+    } catch (error) {
+      console.error('Erreur lors du démarrage du tracking:', error);
+      Alert.alert('Erreur', 'Impossible de démarrer le tracking GPS');
+    }
   };
 
   const handlePause = () => {
@@ -55,10 +179,27 @@ export default function ActivityScreen() {
   };
 
   const handleStop = () => {
+    // Arrêter le tracking GPS
+    if (locationSubscription) {
+      locationSubscription.remove();
+      setLocationSubscription(null);
+    }
+    
     setIsRunning(false);
     setIsPaused(false);
     setTime(0);
     setDistance(0);
+    setRouteCoordinates([]);
+    
+    // Réinitialiser la carte à la position actuelle
+    if (currentLocation) {
+      setMapRegion({
+        latitude: currentLocation.coords.latitude,
+        longitude: currentLocation.coords.longitude,
+        latitudeDelta: 0.01,
+        longitudeDelta: 0.01,
+      });
+    }
   };
 
   const stats = [
@@ -70,13 +211,13 @@ export default function ActivityScreen() {
     },
     { 
       label: 'Allure', 
-      value: `${calculatePace()} min/km`, 
+      value: distance > 0 ? `${calculatePace()} min/km` : '0:00 min/km', 
       icon: Zap, 
       color: '#F97316' 
     },
     { 
-      label: 'Calories', 
-      value: `${Math.floor(distance * 60)} cal`, 
+      label: 'Vitesse', 
+      value: distance > 0 ? `${calculateSpeed().toFixed(1)} km/h` : '0.0 km/h', 
       icon: ActivityIcon, 
       color: '#10B981' 
     },
@@ -87,11 +228,19 @@ export default function ActivityScreen() {
       {/* Header */}
       <View style={styles.header}>
         <Text style={styles.headerTitle}>Course en cours</Text>
-        <View style={styles.statusIndicator}>
-          <View style={[styles.statusDot, { backgroundColor: isRunning && !isPaused ? '#10B981' : '#F59E0B' }]} />
-          <Text style={styles.statusText}>
-            {isRunning ? (isPaused ? 'En pause' : 'Active') : 'Arrêtée'}
-          </Text>
+        <View style={styles.statusContainer}>
+          <View style={styles.statusIndicator}>
+            <View style={[styles.statusDot, { backgroundColor: isRunning && !isPaused ? '#10B981' : '#F59E0B' }]} />
+            <Text style={styles.statusText}>
+              {isRunning ? (isPaused ? 'En pause' : 'Active') : 'Arrêtée'}
+            </Text>
+          </View>
+          <View style={styles.gpsIndicator}>
+            <View style={[styles.gpsDot, { backgroundColor: locationPermission ? '#10B981' : '#EF4444' }]} />
+            <Text style={styles.gpsText}>
+              GPS {locationPermission ? 'Connecté' : 'Non connecté'}
+            </Text>
+          </View>
         </View>
       </View>
 
@@ -121,16 +270,53 @@ export default function ActivityScreen() {
         ))}
       </View>
 
-      {/* Map Placeholder */}
+      {/* Map */}
       <View style={styles.mapContainer}>
-        <LinearGradient
-          colors={['#F1F5F9', '#E2E8F0']}
-          style={styles.mapGradient}
-        >
-          <MapPin size={48} color="#64748B" strokeWidth={1.5} />
-          <Text style={styles.mapText}>Carte GPS</Text>
-          <Text style={styles.mapSubtext}>La carte s'affichera ici pendant la course</Text>
-        </LinearGradient>
+        {locationPermission && Platform.OS !== 'web' ? (
+          <MapView
+            style={styles.map}
+            region={mapRegion}
+            showsUserLocation={true}
+            showsMyLocationButton={true}
+            followsUserLocation={isRunning}
+            provider={PROVIDER_GOOGLE}
+          >
+            {/* Marqueur de position actuelle */}
+            {currentLocation && (
+              <Marker
+                coordinate={{
+                  latitude: currentLocation.coords.latitude,
+                  longitude: currentLocation.coords.longitude,
+                }}
+                title="Votre position"
+                description="Position actuelle"
+                pinColor="#3B82F6"
+              />
+            )}
+            
+            {/* Ligne du parcours */}
+            {routeCoordinates.length > 1 && (
+              <Polyline
+                coordinates={routeCoordinates.map(loc => ({
+                  latitude: loc.coords.latitude,
+                  longitude: loc.coords.longitude,
+                }))}
+                strokeColor="#3B82F6"
+                strokeWidth={3}
+                lineDashPattern={[1]}
+              />
+            )}
+          </MapView>
+        ) : (
+          <LinearGradient
+            colors={['#F1F5F9', '#E2E8F0']}
+            style={styles.mapGradient}
+          >
+            <MapPin size={48} color="#64748B" strokeWidth={1.5} />
+            <Text style={styles.mapText}>Carte GPS</Text>
+            <Text style={styles.mapSubtext}>Autorisez la localisation pour voir la carte</Text>
+          </LinearGradient>
+        )}
       </View>
 
       {/* Control Buttons */}
@@ -181,9 +367,12 @@ const styles = StyleSheet.create({
   header: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'center',
+    alignItems: 'flex-start',
     padding: 20,
     paddingTop: 10,
+  },
+  statusContainer: {
+    alignItems: 'flex-end',
   },
   headerTitle: {
     fontSize: 24,
@@ -211,6 +400,31 @@ const styles = StyleSheet.create({
   },
   statusText: {
     fontSize: 14,
+    fontWeight: '600',
+    color: '#6B7280',
+  },
+  gpsIndicator: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FFFFFF',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 20,
+    marginTop: 8,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 8,
+    elevation: 2,
+  },
+  gpsDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    marginRight: 6,
+  },
+  gpsText: {
+    fontSize: 12,
     fontWeight: '600',
     color: '#6B7280',
   },
@@ -286,6 +500,10 @@ const styles = StyleSheet.create({
     borderRadius: 20,
     overflow: 'hidden',
     height: 200,
+  },
+  map: {
+    flex: 1,
+    borderRadius: 20,
   },
   mapGradient: {
     flex: 1,

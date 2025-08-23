@@ -3,6 +3,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Play, TrendingUp, Target, Award, Activity } from 'lucide-react-native';
 import { useState, useEffect } from 'react';
+import { router } from 'expo-router';
 
 const { width } = Dimensions.get('window');
 
@@ -16,6 +17,10 @@ export default function HomeScreen() {
 
     return () => clearInterval(timer);
   }, []);
+
+  const handleStartRun = () => {
+    router.push('/(tabs)/activity');
+  };
 
   const quickStats = [
     { label: 'Cette semaine', value: '12.5 km', icon: TrendingUp, color: '#3B82F6' },
@@ -49,7 +54,7 @@ export default function HomeScreen() {
         </View>
 
         {/* Quick Start Button */}
-        <TouchableOpacity style={styles.quickStartContainer}>
+        <TouchableOpacity style={styles.quickStartContainer} onPress={handleStartRun}>
           <LinearGradient
             colors={['#3B82F6', '#1D4ED8']}
             style={styles.quickStartGradient}

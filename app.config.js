@@ -8,6 +8,11 @@ export default {
     scheme: "myapp",
     userInterfaceStyle: "automatic",
     newArchEnabled: true,
+    extra: {
+      eas: {
+        projectId: "73bb6497-52ec-493b-9a28-310997ffa93c"
+      }
+    },
     ios: {
       supportsTablet: true,
       icon: "./assets/images/icon.png"
@@ -17,9 +22,8 @@ export default {
       versionCode: 1,
       icon: "./assets/images/icon.png",
       adaptiveIcon: {
-        foregroundImage: "./assets/images/adaptive-icon.png",
-        backgroundColor: "#ffffff",
-        monochromeImage: "./assets/images/icon.png"
+        foregroundImage: "./assets/images/icon.png",
+        backgroundColor: "#ffffff"
       },
       permissions: [
         "android.permission.INTERNET",
@@ -33,9 +37,19 @@ export default {
       output: "single",
       favicon: "./assets/images/favicon.png"
     },
-    plugins: ["expo-router", "expo-font", "expo-web-browser"],
+    plugins: [
+      "expo-router",
+      "expo-font", 
+      "expo-web-browser"
+    ],
     experiments: {
       typedRoutes: true
-    }
+    },
+    splash: {
+      image: "./assets/images/icon.png",
+      resizeMode: "contain",
+      backgroundColor: "#ffffff"
+    },
+
   }
 };
