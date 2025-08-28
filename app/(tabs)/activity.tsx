@@ -4,8 +4,6 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { useState, useEffect } from 'react';
 import { Play, Pause, Square, MapPin, Clock, Activity as ActivityIcon, Zap } from 'lucide-react-native';
 import * as Location from 'expo-location';
-import { Platform } from 'react-native';
-import MapView, { Marker, Polyline, PROVIDER_GOOGLE } from 'react-native-maps';
 
 const { width } = Dimensions.get('window');
 
@@ -18,12 +16,6 @@ export default function ActivityScreen() {
   const [currentLocation, setCurrentLocation] = useState<Location.LocationObject | null>(null);
   const [locationPermission, setLocationPermission] = useState(false);
   const [routeCoordinates, setRouteCoordinates] = useState<Location.LocationObject[]>([]);
-  const [mapRegion, setMapRegion] = useState({
-    latitude: 48.8566,
-    longitude: 2.3522,
-    latitudeDelta: 0.01,
-    longitudeDelta: 0.01,
-  });
 
   // Demander les permissions GPS au chargement
   useEffect(() => {
@@ -61,14 +53,6 @@ export default function ActivityScreen() {
           accuracy: Location.Accuracy.High,
         });
         setCurrentLocation(location);
-        
-        // Initialiser la carte avec la position actuelle
-        setMapRegion({
-          latitude: location.coords.latitude,
-          longitude: location.coords.longitude,
-          latitudeDelta: 0.01,
-          longitudeDelta: 0.01,
-        });
       } else {
         Alert.alert(
           'Permission refusée',
@@ -143,14 +127,6 @@ export default function ActivityScreen() {
           // Ajouter la nouvelle position au parcours
           setRouteCoordinates(prev => [...prev, location]);
           
-          // Mettre à jour la région de la carte pour suivre la position
-          setMapRegion({
-            latitude: location.coords.latitude,
-            longitude: location.coords.longitude,
-            latitudeDelta: 0.005,
-            longitudeDelta: 0.005,
-          });
-          
           // Calculer la distance si on a au moins 2 points
           if (routeCoordinates.length > 0) {
             const lastLocation = routeCoordinates[routeCoordinates.length - 1];
@@ -190,16 +166,6 @@ export default function ActivityScreen() {
     setTime(0);
     setDistance(0);
     setRouteCoordinates([]);
-    
-    // Réinitialiser la carte à la position actuelle
-    if (currentLocation) {
-      setMapRegion({
-        latitude: currentLocation.coords.latitude,
-        longitude: currentLocation.coords.longitude,
-        latitudeDelta: 0.01,
-        longitudeDelta: 0.01,
-      });
-    }
   };
 
   const stats = [
@@ -270,53 +236,24 @@ export default function ActivityScreen() {
         ))}
       </View>
 
-      {/* Map */}
-      <View style={styles.mapContainer}>
-        {locationPermission && Platform.OS !== 'web' ? (
-          <MapView
-            style={styles.map}
-            region={mapRegion}
-            showsUserLocation={true}
-            showsMyLocationButton={true}
-            followsUserLocation={isRunning}
-            provider={PROVIDER_GOOGLE}
-          >
-            {/* Marqueur de position actuelle */}
-            {currentLocation && (
-              <Marker
-                coordinate={{
-                  latitude: currentLocation.coords.latitude,
-                  longitude: currentLocation.coords.longitude,
-                }}
-                title="Votre position"
-                description="Position actuelle"
-                pinColor="#3B82F6"
-              />
-            )}
-            
-            {/* Ligne du parcours */}
-            {routeCoordinates.length > 1 && (
-              <Polyline
-                coordinates={routeCoordinates.map(loc => ({
-                  latitude: loc.coords.latitude,
-                  longitude: loc.coords.longitude,
-                }))}
-                strokeColor="#3B82F6"
-                strokeWidth={3}
-                lineDashPattern={[1]}
-              />
-            )}
-          </MapView>
-        ) : (
-          <LinearGradient
-            colors={['#F1F5F9', '#E2E8F0']}
-            style={styles.mapGradient}
-          >
-            <MapPin size={48} color="#64748B" strokeWidth={1.5} />
-            <Text style={styles.mapText}>Carte GPS</Text>
-            <Text style={styles.mapSubtext}>Autorisez la localisation pour voir la carte</Text>
-          </LinearGradient>
-        )}
+      {/* GPS Status Card */}
+      <View style={styles.gpsCard}>
+        <LinearGradient
+          colors={['#F1F5F9', '#E2E8F0']}
+          style={styles.gpsCardGradient}
+        >
+          <MapPin size={32} color="#64748B" strokeWidth={1.5} />
+          <Text style={styles.gpsCardTitle}>Suivi GPS</Text>
+          <Text style={styles.gpsCardText}>
+            {locationPermission 
+              ? `Position: ${currentLocation ? `${currentLocation.coords.latitude.toFixed(4)}, ${currentLocation.coords.longitude.toFixed(4)}` : 'En cours...'}`
+              : 'Autorisez la localisation pour commencer'
+            }
+          </Text>
+          <Text style={styles.gpsCardSubtext}>
+            {routeCoordinates.length > 0 ? `${routeCoordinates.length} points enregistrés` : 'Aucun point enregistré'}
+          </Text>
+        </LinearGradient>
       </View>
 
       {/* Control Buttons */}
@@ -494,32 +431,32 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     fontWeight: '500',
   },
-  mapContainer: {
+  gpsCard: {
     marginHorizontal: 20,
     marginBottom: 24,
     borderRadius: 20,
     overflow: 'hidden',
-    height: 200,
   },
-  map: {
-    flex: 1,
-    borderRadius: 20,
-  },
-  mapGradient: {
-    flex: 1,
-    justifyContent: 'center',
+  gpsCardGradient: {
+    padding: 24,
     alignItems: 'center',
   },
-  mapText: {
+  gpsCardTitle: {
     fontSize: 18,
     fontWeight: '600',
     color: '#64748B',
-    marginTop: 8,
+    marginTop: 12,
+    marginBottom: 8,
   },
-  mapSubtext: {
+  gpsCardText: {
     fontSize: 14,
+    color: '#64748B',
+    textAlign: 'center',
+    marginBottom: 4,
+  },
+  gpsCardSubtext: {
+    fontSize: 12,
     color: '#94A3B8',
-    marginTop: 4,
     textAlign: 'center',
   },
   controlsContainer: {

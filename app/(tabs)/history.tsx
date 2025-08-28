@@ -1,70 +1,24 @@
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Dimensions } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { Calendar, TrendingUp, MapPin, Clock, Filter } from 'lucide-react-native';
+import { Calendar, TrendingUp, MapPin, Clock, Filter, ChevronDown, ChevronLeft, ChevronRight } from 'lucide-react-native';
 import { useState } from 'react';
+import { useRunData, TimePeriod } from '../../hooks/useRunData';
 
 const { width } = Dimensions.get('window');
 
-interface RunData {
-  id: string;
-  date: string;
-  distance: number;
-  duration: string;
-  pace: string;
-  calories: number;
-  type: 'easy' | 'interval' | 'long' | 'tempo';
-}
-
-const mockRuns: RunData[] = [
-  {
-    id: '1',
-    date: 'Aujourd\'hui',
-    distance: 5.2,
-    duration: '24:38',
-    pace: '4:45',
-    calories: 312,
-    type: 'easy',
-  },
-  {
-    id: '2',
-    date: 'Hier',
-    distance: 7.8,
-    duration: '32:54',
-    pace: '4:12',
-    calories: 468,
-    type: 'interval',
-  },
-  {
-    id: '3',
-    date: 'Lundi',
-    distance: 10.5,
-    duration: '52:30',
-    pace: '5:00',
-    calories: 630,
-    type: 'long',
-  },
-  {
-    id: '4',
-    date: 'Samedi',
-    distance: 6.2,
-    duration: '28:45',
-    pace: '4:38',
-    calories: 372,
-    type: 'tempo',
-  },
-  {
-    id: '5',
-    date: 'Vendredi',
-    distance: 4.8,
-    duration: '22:16',
-    pace: '4:38',
-    calories: 288,
-    type: 'easy',
-  },
-];
-
 export default function HistoryScreen() {
-  const [selectedFilter, setSelectedFilter] = useState<string>('all');
+  const { 
+    runs, 
+    loading, 
+    getStatsForPeriod, 
+    getRunsForPeriod, 
+    formatDuration, 
+    getPeriodLabel 
+  } = useRunData();
+  
+  const [selectedPeriod, setSelectedPeriod] = useState<TimePeriod>('week');
+  const [currentDate, setCurrentDate] = useState(new Date());
+  const [showPeriodSelector, setShowPeriodSelector] = useState(false);
 
   const getRunTypeColor = (type: string) => {
     switch (type) {
@@ -86,33 +40,151 @@ export default function HistoryScreen() {
     }
   };
 
-  const totalDistance = mockRuns.reduce((acc, run) => acc + run.distance, 0);
-  const totalRuns = mockRuns.length;
-  const averagePace = '4:42';
+  // Obtenir les statistiques pour la période sélectionnée
+  const currentStats = getStatsForPeriod(selectedPeriod, currentDate);
+  const currentRuns = getRunsForPeriod(selectedPeriod, currentDate);
 
-  const weeklyStats = [
-    { label: 'Distance totale', value: `${totalDistance.toFixed(1)} km`, icon: MapPin, color: '#3B82F6' },
-    { label: 'Nombre de courses', value: `${totalRuns}`, icon: TrendingUp, color: '#F97316' },
-    { label: 'Allure moyenne', value: `${averagePace} min/km`, icon: Clock, color: '#10B981' },
+  const periodStats = [
+    { 
+      label: 'Distance totale', 
+      value: `${currentStats.totalDistance.toFixed(1)} km`, 
+      icon: MapPin, 
+      color: '#3B82F6' 
+    },
+    { 
+      label: 'Nombre de courses', 
+      value: `${currentStats.totalRuns}`, 
+      icon: TrendingUp, 
+      color: '#F97316' 
+    },
+    { 
+      label: 'Allure moyenne', 
+      value: `${currentStats.averagePace} min/km`, 
+      icon: Clock, 
+      color: '#10B981' 
+    },
   ];
+
+  // Fonctions de navigation dans le temps
+  const navigatePeriod = (direction: 'prev' | 'next') => {
+    const newDate = new Date(currentDate);
+    
+    switch (selectedPeriod) {
+      case 'day':
+        newDate.setDate(newDate.getDate() + (direction === 'next' ? 1 : -1));
+        break;
+      case 'week':
+        newDate.setDate(newDate.getDate() + (direction === 'next' ? 7 : -7));
+        break;
+      case 'month':
+        newDate.setMonth(newDate.getMonth() + (direction === 'next' ? 1 : -1));
+        break;
+      case 'year':
+        newDate.setFullYear(newDate.getFullYear() + (direction === 'next' ? 1 : -1));
+        break;
+    }
+    
+    setCurrentDate(newDate);
+  };
+
+  const periodOptions: Array<{key: TimePeriod, label: string}> = [
+    { key: 'day', label: 'Jour' },
+    { key: 'week', label: 'Semaine' },
+    { key: 'month', label: 'Mois' },
+    { key: 'year', label: 'Année' },
+  ];
+
+  // Formater la date d'affichage pour les courses
+  const formatRunDate = (dateString: string) => {
+    const runDate = new Date(dateString);
+    const now = new Date();
+    const diffTime = now.getTime() - runDate.getTime();
+    const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
+
+    if (diffDays === 0) return 'Aujourd\'hui';
+    if (diffDays === 1) return 'Hier';
+    if (diffDays < 7) return runDate.toLocaleDateString('fr-FR', { weekday: 'long' });
+    
+    return runDate.toLocaleDateString('fr-FR', { 
+      day: 'numeric', 
+      month: 'short' 
+    });
+  };
 
   return (
     <SafeAreaView style={styles.container}>
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContent}>
         {/* Header */}
         <View style={styles.header}>
-          <View>
+          <View style={styles.headerLeft}>
             <Text style={styles.headerTitle}>Historique</Text>
-            <Text style={styles.headerSubtitle}>Cette semaine</Text>
+            <TouchableOpacity 
+              style={styles.periodSelector}
+              onPress={() => setShowPeriodSelector(!showPeriodSelector)}
+            >
+              <Text style={styles.periodText}>
+                {periodOptions.find(p => p.key === selectedPeriod)?.label}
+              </Text>
+              <ChevronDown size={16} color="#6B7280" strokeWidth={2} />
+            </TouchableOpacity>
           </View>
           <TouchableOpacity style={styles.filterButton}>
             <Filter size={20} color="#6B7280" strokeWidth={2} />
           </TouchableOpacity>
         </View>
 
-        {/* Weekly Stats */}
+        {/* Period Selector Dropdown */}
+        {showPeriodSelector && (
+          <View style={styles.periodDropdown}>
+            {periodOptions.map((option) => (
+              <TouchableOpacity
+                key={option.key}
+                style={[
+                  styles.periodOption,
+                  selectedPeriod === option.key && styles.periodOptionSelected
+                ]}
+                onPress={() => {
+                  setSelectedPeriod(option.key);
+                  setShowPeriodSelector(false);
+                }}
+              >
+                <Text style={[
+                  styles.periodOptionText,
+                  selectedPeriod === option.key && styles.periodOptionTextSelected
+                ]}>
+                  {option.label}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+        )}
+
+        {/* Period Navigation */}
+        <View style={styles.periodNavigation}>
+          <TouchableOpacity 
+            style={styles.navButton}
+            onPress={() => navigatePeriod('prev')}
+          >
+            <ChevronLeft size={20} color="#6B7280" strokeWidth={2} />
+          </TouchableOpacity>
+          
+          <View style={styles.periodLabel}>
+            <Text style={styles.periodLabelText}>
+              {getPeriodLabel(selectedPeriod, currentDate)}
+            </Text>
+          </View>
+          
+          <TouchableOpacity 
+            style={styles.navButton}
+            onPress={() => navigatePeriod('next')}
+          >
+            <ChevronRight size={20} color="#6B7280" strokeWidth={2} />
+          </TouchableOpacity>
+        </View>
+
+        {/* Period Stats */}
         <View style={styles.statsContainer}>
-          {weeklyStats.map((stat, index) => (
+          {periodStats.map((stat, index) => (
             <View key={index} style={styles.statCard}>
               <View style={[styles.statIconContainer, { backgroundColor: `${stat.color}20` }]}>
                 <stat.icon size={20} color={stat.color} strokeWidth={2} />
@@ -140,41 +212,57 @@ export default function HistoryScreen() {
 
         {/* Run History List */}
         <View style={styles.historySection}>
-          <Text style={styles.sectionTitle}>Courses récentes</Text>
+          <Text style={styles.sectionTitle}>
+            Courses de la {periodOptions.find(p => p.key === selectedPeriod)?.label.toLowerCase()}
+          </Text>
           
-          {mockRuns.map((run) => (
-            <TouchableOpacity key={run.id} style={styles.runCard}>
-              <View style={styles.runHeader}>
-                <View style={styles.runTypeContainer}>
-                  <View style={[styles.runTypeDot, { backgroundColor: getRunTypeColor(run.type) }]} />
-                  <Text style={styles.runType}>{getRunTypeLabel(run.type)}</Text>
-                </View>
-                <Text style={styles.runDate}>{run.date}</Text>
-              </View>
-              
-              <View style={styles.runContent}>
-                <View style={styles.runMainStats}>
-                  <Text style={styles.runDistance}>{run.distance} km</Text>
-                  <View style={styles.runDivider} />
-                  <View style={styles.runTimeInfo}>
-                    <Clock size={16} color="#6B7280" strokeWidth={2} />
-                    <Text style={styles.runDuration}>{run.duration}</Text>
+          {loading ? (
+            <View style={styles.loadingContainer}>
+              <Text style={styles.loadingText}>Chargement...</Text>
+            </View>
+          ) : currentRuns.length === 0 ? (
+            <View style={styles.emptyContainer}>
+              <TrendingUp size={48} color="#94A3B8" strokeWidth={1.5} />
+              <Text style={styles.emptyTitle}>Aucune course</Text>
+              <Text style={styles.emptyText}>
+                Pas de courses pour cette {periodOptions.find(p => p.key === selectedPeriod)?.label.toLowerCase()}
+              </Text>
+            </View>
+          ) : (
+            currentRuns.map((run) => (
+              <TouchableOpacity key={run.id} style={styles.runCard}>
+                <View style={styles.runHeader}>
+                  <View style={styles.runTypeContainer}>
+                    <View style={[styles.runTypeDot, { backgroundColor: getRunTypeColor(run.type) }]} />
+                    <Text style={styles.runType}>{getRunTypeLabel(run.type)}</Text>
                   </View>
+                  <Text style={styles.runDate}>{formatRunDate(run.date)}</Text>
                 </View>
                 
-                <View style={styles.runSecondaryStats}>
-                  <View style={styles.runStatItem}>
-                    <Text style={styles.runStatLabel}>Allure</Text>
-                    <Text style={styles.runStatValue}>{run.pace} min/km</Text>
+                <View style={styles.runContent}>
+                  <View style={styles.runMainStats}>
+                    <Text style={styles.runDistance}>{run.distance.toFixed(1)} km</Text>
+                    <View style={styles.runDivider} />
+                    <View style={styles.runTimeInfo}>
+                      <Clock size={16} color="#6B7280" strokeWidth={2} />
+                      <Text style={styles.runDuration}>{formatDuration(run.duration)}</Text>
+                    </View>
                   </View>
-                  <View style={styles.runStatItem}>
-                    <Text style={styles.runStatLabel}>Calories</Text>
-                    <Text style={styles.runStatValue}>{run.calories} cal</Text>
+                  
+                  <View style={styles.runSecondaryStats}>
+                    <View style={styles.runStatItem}>
+                      <Text style={styles.runStatLabel}>Allure</Text>
+                      <Text style={styles.runStatValue}>{run.pace} min/km</Text>
+                    </View>
+                    <View style={styles.runStatItem}>
+                      <Text style={styles.runStatLabel}>Calories</Text>
+                      <Text style={styles.runStatValue}>{run.calories} cal</Text>
+                    </View>
                   </View>
                 </View>
-              </View>
-            </TouchableOpacity>
-          ))}
+              </TouchableOpacity>
+            ))
+          )}
         </View>
 
         {/* Load More Button */}
@@ -201,16 +289,97 @@ const styles = StyleSheet.create({
     padding: 20,
     paddingTop: 10,
   },
+  headerLeft: {
+    flex: 1,
+  },
   headerTitle: {
     fontSize: 28,
     fontWeight: '700',
     color: '#1F2937',
+    marginBottom: 8,
   },
-  headerSubtitle: {
+  periodSelector: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FFFFFF',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 12,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 8,
+    elevation: 2,
+  },
+  periodText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#3B82F6',
+    marginRight: 6,
+  },
+  periodDropdown: {
+    backgroundColor: '#FFFFFF',
+    marginHorizontal: 20,
+    marginTop: -10,
+    marginBottom: 16,
+    borderRadius: 12,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.1,
+    shadowRadius: 12,
+    elevation: 6,
+    zIndex: 1000,
+  },
+  periodOption: {
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F1F5F9',
+  },
+  periodOptionSelected: {
+    backgroundColor: '#EBF4FF',
+  },
+  periodOptionText: {
     fontSize: 16,
-    color: '#6B7280',
     fontWeight: '500',
-    marginTop: 2,
+    color: '#374151',
+  },
+  periodOptionTextSelected: {
+    color: '#3B82F6',
+    fontWeight: '600',
+  },
+  periodNavigation: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginHorizontal: 20,
+    marginBottom: 24,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 16,
+    padding: 12,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 8,
+    elevation: 2,
+  },
+  navButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: '#F8FAFC',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  periodLabel: {
+    flex: 1,
+    alignItems: 'center',
+  },
+  periodLabelText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#1F2937',
+    textAlign: 'center',
   },
   filterButton: {
     backgroundColor: '#FFFFFF',
@@ -416,5 +585,31 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '600',
     color: '#6B7280',
+  },
+  loadingContainer: {
+    padding: 40,
+    alignItems: 'center',
+  },
+  loadingText: {
+    fontSize: 16,
+    color: '#6B7280',
+    fontWeight: '500',
+  },
+  emptyContainer: {
+    padding: 40,
+    alignItems: 'center',
+  },
+  emptyTitle: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: '#64748B',
+    marginTop: 16,
+    marginBottom: 8,
+  },
+  emptyText: {
+    fontSize: 14,
+    color: '#94A3B8',
+    textAlign: 'center',
+    lineHeight: 20,
   },
 });
